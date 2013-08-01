@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Zombie Train</title>
+
+<script language="javascript" src="http://code.jquery.com/jquery-1.4.2.js" ></script>
+
+<script>
+	//variable de chargement
+	var ctx;
+	var current_state;
+	var move = 0;
+	var load_index = 0;
+	var nb_image;
+	var DEFAULT_WIDTH = 32;
+	var DEFAULT_HEIGHT = 32;
+	var DEFAULT_TILE_WIDTH = 32;
+	var DEFAULT_TILE_HEIGHT = 32;
+	var SCREEN_WIDTH = 800;
+	var SCREEN_HEIGHT = 512;
+	var MENU_WIDTH = 800;
+	var MENU_HEIGHT = 300;
+	var NB_TILE_WIDTH = 25;
+	var NB_TILE_HEIGHT = 15;
+	
+	function Mouse() {
+		this.x = 0;
+		this.y = 0;
+	}
+	Mouse.prototype.tileX = function () { return Math.ceil(this.x/DEFAULT_TILE_WIDTH) - 1; };
+	Mouse.prototype.tileY = function () { return Math.ceil(this.y/DEFAULT_TILE_HEIGHT) - 2; };
+	
+	//Classe d'element graphique animé
+	function GameObject()
+	{
+		this.x = 0;
+		this.y = 0;
+		this.w = 0;
+		this.h = 0;
+		this.sx = 0;
+		this.sy = 0;
+		this.sw = 0;
+		this.sh = 0;
+		this.o = 0;
+		
+		this.image = new Image();
+		this.image.onload = function() { Loading(); }
+		this.draw = function() { ctx.drawImage(this.image, this.sx, this.sy, this.sw, this.sh, this.x, this.y, this.w, this.h); }
+		this.draw_menu = function() { ctx_menu.drawImage(this.image, this.sx, this.sy, this.sw, this.sh, this.x, this.y, this.w, this.h); }
+		this.newX = function(n) { this.x = DEFAULT_TILE_WIDTH * n ; }
+		this.newY = function(n) { this.y = DEFAULT_TILE_HEIGHT * n ; }
+		this.down = function(n) { this.y = this.y + ( n * DEFAULT_TILE_HEIGHT ); }
+		this.up = function(n) { this.y = this.y - ( n * DEFAULT_TILE_HEIGHT ); }
+		this.left = function(n) { this.x = this.x - ( n * DEFAULT_TILE_WIDTH ); }
+		this.right = function(n) { this.x = this.x + ( n * DEFAULT_TILE_WIDTH ); }
+	}
+	
+	//classe de menu
+	function Menu() {};
+	Menu.prototype = new GameObject();
+	Menu.prototype.w = 262;
+	Menu.prototype.h = 284;
+	Menu.prototype.sw = 262
+	Menu.prototype.sh = 284
+	
+	//classe d'objet de jeu
+	function Item(n) {
+		this.idItem = n;
+	};
+	Item.prototype = new GameObject();
+	Item.prototype.w = DEFAULT_TILE_WIDTH/2;
+	Item.prototype.h = DEFAULT_TILE_HEIGHT/2;
+	Item.prototype.sw = DEFAULT_WIDTH/2;
+	Item.prototype.sh = DEFAULT_HEIGHT/2;
+	Item.prototype.x = 12 * DEFAULT_TILE_WIDTH;
+	Item.prototype.y = DEFAULT_TILE_WIDTH/4;
+	Item.prototype.change = function(n){
+		this.sx = n * DEFAULT_TILE_WIDTH/2;
+	}
+	
+	//Classe d'element graphique animé de 32x32 pixels
+	function Object32x32() {};
+	Object32x32.prototype = new GameObject();
+	Object32x32.prototype.currentFrame = 0;
+	Object32x32.prototype.changeFrame = function(n) {
+		this.sy = n * DEFAULT_HEIGHT;
+	};
+	Object32x32.prototype.changeOrientation = function(n) { 
+		this.sx = n * DEFAULT_WIDTH;
+		this.o = n;
+	};
+	Object32x32.prototype.nextFrame = function() {
+		this.currentFrame++;
+		this.currentFrame %= 5;
+		this.sy = this.currentFrame * DEFAULT_HEIGHT;
+	};
+	Object32x32.prototype.w = DEFAULT_TILE_WIDTH;
+	Object32x32.prototype.h = DEFAULT_TILE_HEIGHT;
+	Object32x32.prototype.sw = DEFAULT_WIDTH;
+	Object32x32.prototype.sh = DEFAULT_HEIGHT;
+	
+	//Classe Tile
+	function Tile() {
+		this.itemIndex = 0;
+		this.items = new Array();
+		this.type = 0;
+		this.haveBuilding = false;
+		this.iDbuilding;
+	};
+	Tile.prototype = new GameObject();
+	Tile.prototype.changeType = function(n) {
+		this.sx = n * DEFAULT_WIDTH;
+		this.type = n;
+	};
+	Tile.prototype.w = DEFAULT_TILE_WIDTH;
+	Tile.prototype.h = DEFAULT_TILE_HEIGHT;
+	Tile.prototype.sw = DEFAULT_WIDTH;
+	Tile.prototype.sh = DEFAULT_HEIGHT;
+	
+	//Classe Survivor
+	function Survivor() {
+		this.items = new Array();
+		this.maxbackpack = 10;
+		this.current_build;
+		this.building = 0;
+		this.using = -1;
+		this.menuActif;
+	};
+	Survivor.prototype = new Object32x32();
+	Survivor.prototype.life = 100;
+	Survivor.prototype.tileX = function () { return this.x / DEFAULT_TILE_WIDTH ;};
+	Survivor.prototype.tileY = function () { return this.y / DEFAULT_TILE_HEIGHT - 1 ;};
+	Survivor.prototype.backpackfull = function () { return this.items.length >= this.maxbackpack };
+	Survivor.prototype.backpacknotempty = function () { return this.items.length > 0 };
+	Survivor.prototype.currentTile = function (){ return grid[this.tileX()][this.tileY()] ;};
+	Survivor.prototype.dig = function() {
+		if ( grid[this.tileX()][this.tileY()].items.length > 0 && !this.backpackfull()){
+			this.items.push(grid[this.tileX()][this.tileY()].items.pop());
+			detail_state.value = "item : (" + this.items[this.items.length - 1].idItem + ")/" + grid[this.tileX()][this.tileY()].items.length;
+			if (grid[this.tileX()][this.tileY()].items.length < 1 ){
+				grid[this.tileX()][this.tileY()].changeType(0);
+			}
+			else{
+				grid[this.tileX()][this.tileY()].changeType(2);
+			}
+		}
+		else{
+			detail_state.value = "case vide ou sac plein";
+		}
+	};
+	Survivor.prototype.dump = function() {
+		if( grid[this.tileX()][this.tileY()].type < 3 && this.items.length > 0 ){
+			detail_state.value = "order to dump";
+			grid[this.tileX()][this.tileY()].items.push(this.items.pop());
+			detail_state.value = "backPack : " + this.items.length + "/" + this.maxbackpack;
+			if (grid[this.tileX()][this.tileY()].items.length > 0 ){
+				grid[this.tileX()][this.tileY()].changeType(2);
+			}
+		}
+	}
+	Survivor.prototype.drop = function() {
+		if( this.using == 0 && this.items.length > 0){
+			detail_state.value = "Dropping in ";// + survivor.currentTile().building.name;
+			array_build[this.currentTile().iDbuilding].items.push(this.items.pop());
+			//this.currentTile().building.items[this.currentTile().building.items.length].push(this.items.pop());
+			//detail_state.value = "Dropping" +array_build[this.currentTile().iDbuilding] + "in " + survivor.currentTile().building.name;
+		}
+	}
+	Survivor.prototype.build = function() {
+		if(build_bank(this.items)){
+			this.building = 1;
+			detail_state.value = "buildind bank";
+			this.current_build = new Builds(0);
+			this.current_build.image = builds.image;
+			this.current_build.changeBuild(0);
+		}
+	}
+	Survivor.prototype.crush = function() {
+		switch(this.o){
+			case 0:
+				if (grid[this.tileX()][this.tileY() -1].type == 3){
+					grid[this.tileX()][this.tileY() -1].changeType(2);
+				}
+				break;
+			case 4:
+				if (grid[this.tileX()][this.tileY() +1].type == 3){
+					grid[this.tileX()][this.tileY() +1].changeType(2);
+				}
+				break;
+			case 6:
+				if (grid[this.tileX() -1][this.tileY()].type == 3){
+					grid[this.tileX() -1][this.tileY()].changeType(2);
+				}
+				break;
+			case 2:
+				if (grid[this.tileX() +1][this.tileY()].type == 3){
+					grid[this.tileX() +1][this.tileY()].changeType(2);
+				}
+				break;
+		}
+	}
+	
+	//classe d'etat du personnage
+	function SState() {};
+	SState.prototype = new GameObject();
+	SState.prototype.x = 6 * DEFAULT_TILE_WIDTH;
+	SState.prototype.y = DEFAULT_TILE_WIDTH/4;
+	SState.prototype.w = DEFAULT_TILE_WIDTH/2;
+	SState.prototype.h = DEFAULT_TILE_HEIGHT/2;
+	SState.prototype.sw = DEFAULT_WIDTH/2;
+	SState.prototype.sh = DEFAULT_HEIGHT/2;
+	SState.prototype.change = function(n){
+		this.sx = n * DEFAULT_TILE_WIDTH/2;
+	}
+	SState.prototype.level = function(n){
+		this.sy = n * DEFAULT_TILE_HEIGHT/2;
+	}
+	
+	//classe du HUD
+	function Hud() {};
+	Hud.prototype = new GameObject();
+	Hud.prototype.w = SCREEN_WIDTH;
+	Hud.prototype.h = DEFAULT_TILE_HEIGHT;
+	Hud.prototype.sw = SCREEN_WIDTH;
+	Hud.prototype.sh = DEFAULT_HEIGHT;
+	Hud.prototype.drawItem = function() {
+		for (var i = 0 ; i < survivor.items.length ; i++){
+			survivor.items[i].x = (11 * DEFAULT_TILE_WIDTH) + (i * DEFAULT_TILE_WIDTH/2);
+			survivor.items[i].change(survivor.items[i].idItem);
+			survivor.items[i].draw();
+		}
+	}
+	
+	//Classe de batiment
+	function Builds(n) {
+			this.type = n;
+			this.items = new Array();
+			this.name;
+	};
+	Builds.prototype = new GameObject();
+	Builds.prototype.w = DEFAULT_TILE_WIDTH * 2;
+	Builds.prototype.h = DEFAULT_TILE_HEIGHT * 2;
+	Builds.prototype.sx = this.type * DEFAULT_WIDTH;
+	Builds.prototype.sw = DEFAULT_WIDTH * 2;
+	Builds.prototype.sh = DEFAULT_HEIGHT * 2;
+	Builds.prototype.tileX = function () { return this.x / DEFAULT_TILE_WIDTH ;};
+	Builds.prototype.tileY = function () { return this.y / DEFAULT_TILE_HEIGHT - 1 ;};
+	Builds.prototype.changeBuild = function(n) {
+		this.type = n ;
+		this.sx = this.type * DEFAULT_WIDTH;
+		switch(n){
+			case 0:
+				this.name = "banque";
+		}
+	};
+	Builds.prototype.checkPlace = function(){
+		return (grid[this.tileX()][this.tileY()].type == 0 &&
+				!grid[this.tileX()][this.tileY()].haveBuilding &&
+				grid[this.tileX() +1][this.tileY()].type == 0 &&
+				!grid[this.tileX() +1][this.tileY()].haveBuilding &&
+				grid[this.tileX()][this.tileY() +1].type == 0 &&
+				!grid[this.tileX()][this.tileY() +1].haveBuilding &&
+				grid[this.tileX() +1][this.tileY() +1].type == 0 &&
+				!grid[this.tileX() +1][this.tileY() +1].haveBuilding);
+	}
+	Builds.prototype.build = function(idBuild){
+		grid[this.tileX()][this.tileY()].haveBuilding = true;
+		grid[this.tileX()][this.tileY()].iDbuilding = idBuild;
+		grid[this.tileX() +1][this.tileY()].haveBuilding = true;
+		grid[this.tileX() +1][this.tileY()].iDbuilding = idBuild;
+		grid[this.tileX()][this.tileY() +1].haveBuilding = true;
+		grid[this.tileX()][this.tileY() +1].iDbuilding = idBuild;
+		grid[this.tileX() +1][this.tileY() +1].haveBuilding = true;
+		grid[this.tileX() +1][this.tileY() +1].iDbuilding = idBuild;
+	}
+	
+	//condition des batiments
+	function build_bank(array_item){
+		if( array_item.length > 1){
+			return (array_item[0].idItem == 0 && array_item[1].idItem == 0);
+		}
+	}
+	
+	//Instances
+	var mouse = new Mouse();
+	var hud = new Hud();
+	var survivor = new Survivor();
+	var tile = new Tile();
+	var state = new SState();
+	var grid = new Array();
+	var array_state = new Array();
+	var array_build = new Array();
+	var item = new Item();
+	var builds = new Builds();
+	var menu = new Menu();
+	
+	//chargement des images
+	function LoadImage(){
+		nb_image = 7;
+		
+		hud.image.src = "image/hud.png";
+		survivor.image.src = "image/survivor.gif";
+		tile.image.src = "image/tile.png";
+		state.image.src = "image/etat.gif";
+		item.image.src = "image/item.gif";
+		builds.image.src = "image/builds.gif";
+		menu.image.src = "image/bank.gif";
+	}
+	
+	//Verification du chargement
+	function Loading(){
+		load_index++;
+		current_state.value = "Image loading : " + load_index + "/" + nb_image;
+		
+		if (load_index == nb_image){
+			current_state.value = "Image Loaded !";
+			SettingsInit()
+		}
+	}
+	
+	//Chargement de la grille
+	function LoadGrid(){
+		for( var x = 0 ; x < NB_TILE_WIDTH ; x++){
+			grid[x] = new Array();
+			for( var y = 0 ; y < NB_TILE_HEIGHT ; y++){
+				grid[x][y] = new Tile();
+				grid[x][y].image = tile.image;
+				grid[x][y].newX(x);
+				grid[x][y].newY(y+1);
+				var rdm=1 + Math.floor(Math.random()*4);
+				grid[x][y].changeType(rdm);
+				var rdmNbItem=1 + Math.floor(Math.random()*3);
+				for(var i = 0 ; i < rdmNbItem ; i++){
+					var rdmItem=Math.floor(Math.random()*10);
+					grid[x][y].items[i] = new Item(rdmItem);
+					grid[x][y].items[i].image = item.image;
+				}
+			}
+		}
+	}
+	
+	function SState_Init(){
+		array_state[0] = new SState();
+		array_state[1] = new SState();
+		array_state[1].x += DEFAULT_TILE_WIDTH/2;
+		array_state[1].change(1);
+		array_state[1].level(1);
+	}
+	
+	//Initialisation des Paramètres
+	function SettingsInit(){
+		LoadGrid();
+		SState_Init();
+		startGameTimer();
+		current_state.value = "Init Mouse";
+		$("#GameScreen").mousemove(function(e){
+			mouse.x = e.pageX;
+			mouse.y = e.pageY;
+		});
+		current_state.value = "mouse initiated";
+	}
+	
+	function doKeyDown(evt){
+		switch(evt.keyCode){
+			case 38: //Up arrow
+				survivor.using = -1;
+				survivor.changeOrientation(0);
+				if (grid[survivor.tileX()][survivor.tileY() - 1].type < 3){
+					survivor.up(1);
+				}
+				break;
+			case 40: //Down arrow
+				survivor.using = -1;
+				survivor.changeOrientation(4);
+				if (grid[survivor.tileX()][survivor.tileY() + 1].type < 3){
+					survivor.down(1);
+				}
+				break;
+			case 37: //Left arrow
+				survivor.using = -1;
+				survivor.changeOrientation(6);
+				if (grid[survivor.tileX() - 1][survivor.tileY()].type < 3){
+					survivor.left(1);
+				}
+				break;
+			case 39: //Right arrow
+				survivor.using = -1;
+				survivor.changeOrientation(2);
+				if (grid[survivor.tileX() + 1][survivor.tileY()].type < 3){
+					survivor.right(1);
+				}
+				break;
+			case 69: //'e' Key
+				detail_state.value = "tile " + survivor.currentTile().haveBuilding;
+				if (survivor.currentTile().haveBuilding ){
+					detail_state.value = "using";
+					survivor.using = array_build[survivor.currentTile().iDbuilding].type;
+					detail_state.value = "using :" + survivor.using;
+					survivor.menuActif = new Menu();
+					survivor.menuActif.image = menu.image;
+				}	
+				else{
+					detail_state.value = "Digging";
+					survivor.dig();
+				}
+				break;
+			case 66: //'b' Key
+				detail_state.value = "Building";
+				survivor.build();
+				break;
+			case 67: //'c' Key 
+				detail_state.value = "Crushing";
+				survivor.crush();
+				break;
+			case 68: //'d' Key 
+				if (survivor.currentTile().haveBuilding){
+					survivor.drop();
+				}
+				else{
+					detail_state.value = "Dumping";
+					survivor.dump();
+				}
+				break;
+		}
+	}
+	
+	function doMouseDown(evt){
+		if (survivor.building == 1 && checkMouse() && survivor.current_build.checkPlace()){
+		var buildId = -1;
+			if(build_bank(survivor.items)){
+				buildId = 0;
+				survivor.items.shift();
+				survivor.items.shift();
+			}
+			if (buildId != -1){
+				array_build[array_build.length] = new Builds(buildId);
+				array_build[array_build.length -1].x = survivor.current_build.x;
+				array_build[array_build.length -1].y = survivor.current_build.y;
+				array_build[array_build.length -1].changeBuild(buildId);
+				array_build[array_build.length -1].image = builds.image;
+				array_build[array_build.length -1].build(array_build.length -1);
+			}
+		}
+		survivor.building = 0;
+	}
+	
+	//Boucle du jeu
+	function GameLoop(){
+		current_state.value = "Loop : " + move + ".f";
+		mouse_state.value = "Mouse : " + mouse.tileX() + "/" + mouse.tileY();
+		move++;
+		
+		window.addEventListener('keydown',doKeyDown,true);
+		window.addEventListener('click', doMouseDown, true);
+		
+		survivor.nextFrame();
+		
+		DrawGame();	
+	}
+	
+	//Dessin des batiments
+	function draw_builds(){
+		for ( var i = 0 ; i < array_build.length ; i++){
+			array_build[i].draw();
+		}
+	}
+	
+	function checkMouse(){
+		return (mouse.tileX() > 0 && mouse.tileX() < NB_TILE_WIDTH &&
+				mouse.tileY() > 0 && mouse.tileY() < NB_TILE_HEIGHT);
+	}
+	
+	//Dessin du batiment en construction
+	function draw_current_building(){
+		if(survivor.building == 1 && checkMouse()){
+			survivor.current_build.x = mouse.tileX() * DEFAULT_TILE_WIDTH;
+			survivor.current_build.y = mouse.tileY() * DEFAULT_TILE_HEIGHT;
+			if ( survivor.current_build.checkPlace()){
+				ctx.fillStyle = "rgba(0, 255, 0, 0.2)";
+			}
+			else{
+				ctx.fillStyle = "rgba(255, 0, 0, 0.2)";
+			}
+			ctx.fillRect(survivor.current_build.x, survivor.current_build.y, survivor.current_build.w, survivor.current_build.h);
+			survivor.current_build.draw();
+		}
+	}
+	
+	//Demmarrage du timer
+	function startGameTimer(){
+		current_state.value = "game" + move + "!";
+		var start = new Date().getTime(),
+			time = 0;
+		function timer()
+		{
+			time += 70;
+			var diff = (new Date().getTime() - start) - time;
+			GameLoop();
+			window.setTimeout(timer, (70 - diff));
+		
+		}
+		window.setTimeout(timer, 70);
+	}
+	
+	function drawCurrentMenu() {
+		ctx_menu.clearRect(0, 0, MENU_WIDTH, MENU_HEIGHT);
+		if (survivor.using >= 0){
+			survivor.menuActif.draw_menu();
+			if(array_build[survivor.currentTile().iDbuilding].type == 0){
+				for(var i = 0 ; i < array_build[survivor.currentTile().iDbuilding].items.length ; i++){
+					array_build[survivor.currentTile().iDbuilding].items[i].x = DEFAULT_TILE_WIDTH/4 + (i % 8) * DEFAULT_TILE_WIDTH;
+					array_build[survivor.currentTile().iDbuilding].items[i].y = Math.ceil((i + 1)/8) * DEFAULT_TILE_HEIGHT;
+					array_build[survivor.currentTile().iDbuilding].items[i].draw_menu();
+				}
+			}
+		}
+	}
+	
+	function DrawGame(){
+		for( var x = 0 ; x < 25 ; x++){
+			for( var y = 0 ; y < 15 ; y++){
+				grid[x][y].draw();
+			}
+		}
+		draw_builds();
+		
+		survivor.draw();
+		draw_current_building();
+		
+		hud.draw();
+		hud.drawItem();
+		
+		for( var i = 0 ; i < array_state.length ; i++){
+			array_state[i].draw();
+		}
+		
+		drawCurrentMenu();
+	}
+	
+	//Initiation
+	$(window).ready(function(){ 
+		init(); 
+	});
+	
+	function init(){
+		current_state = document.getElementById('game_state');
+		detail_state = document.getElementById('game_detail');
+		mouse_state = document.getElementById('game_mouse');
+		current_state.value = "Initialisation";
+		
+		ctx = document.getElementById('canvas').getContext('2d');
+		ctx_menu = document.getElementById('canvas_menu').getContext('2d'); 
+		
+		survivor.newY(3);
+		survivor.newX(7);
+		
+		LoadImage();
+	}
+	
+</script>
+
+</head>
+
+<body>
+
+	<div id="GameScreen" style="border:1px solid; width:800px; height:512px;">
+	
+		<canvas id="canvas" width="800" height="512">
+		</canvas>
+	
+	</div>
+	<div id="GameScreen" style="border:1px solid; width:800px; height:300px;">
+		<canvas id="canvas_menu" width="800" height="300">
+		</canvas>
+	</div>
+	<div id="GameState" style="border:2px solid; width:800px; height:20px">
+		<input type="text" value="Demmarage" id="game_state" size="20" maxlength="16" />
+		<input type="text" value="script" id="game_detail" size="20" maxlength="16" />
+		<input type="text" value="mouse 0" id="game_mouse" size="20" maxlength="16" />
+	</div>
+
+</body>
+
+</html>
